@@ -1,0 +1,6 @@
+{
+  "name": "Termux Micro Text Editor Pro",
+  "description": "A high-fidelity standalone simulator of Golang's micro editor for Android and Termux, with Storage Access Framework (SAF) file-system traversal simulation and customizable editor theme profiles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,6 @@
+{
+  "appId": "com.termux.microeditorpro",
+  "appName": "Termux Micro Editor Pro",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}
