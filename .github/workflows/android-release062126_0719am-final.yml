@@ -50,9 +50,19 @@ jobs:
           find android/app/src/main/res/ -name "*.png" -exec pngcrush -ow -q -rem alla -reduce {} \;
 
 # Extract version and download clean jar
-      
-      - name: Grant Gradle Execution Rights
-        run: chmod +x android/gradlew
+      - name: Force Download Official Gradle Wrapper JAR
+        run: |
+          cd android
+          mkdir -p gradle/wrapper
+          # Download the official wrapper jar directly from Gradle's repository
+          curl -L -o gradle/wrapper/gradle-wrapper.jar https://githubusercontent.com
+
+      - name: Build Android Release APK (unsigned)
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
 
       - name: Build Android Release APK (unsigned)
         run: |
