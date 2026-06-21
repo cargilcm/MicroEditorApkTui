@@ -1,0 +1,87 @@
+name: Build & Release Android APK
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger build only when pushing custom tags e.g. v1.0.0
+  workflow_dispatch: # Enable manual triggers in GitHub Web UI
+
+jobs:
+  build-apk:
+    name: Build & Package Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install Base Web Dependencies
+        run: |
+          # Clean existing state to prevent Vite/esbuild native binding issues on the CI runner
+          rm -rf node_modules package-lock.json
+          npm install
+          # Explicitly add the platform-specific compiler binary to be absolutely safe
+          npm install --save-optional --no-save @esbuild/linux-x64 @rollup/rollup-linux-x64-gnu
+
+      - name: Compile React Web Assets
+        run: npm run build
+
+      - name: Setup Java Development Kit (JDK 17)
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Synchronize Web Bundle to Android Platform
+        run: |
+          npx cap sync android
+
+      - name: Grant Gradle Execution Rights
+        run: chmod +x android/gradlew
+
+      - name: Build Android Release & Debug APKs
+        run: |
+          cd android
+          ./gradlew assembleRelease assembleDebug
+          cd ..
+
+      - name: Sign & Align Release APK
+        run: |
+          mkdir -p build-assets
+          
+          # Locate Android command-line tools dynamically on the runner
+          ZIPALIGN=$(find $ANDROID_SDK_ROOT/build-tools -name zipalign | sort -r | head -n 1)
+          APKSIGNER=$(find $ANDROID_SDK_ROOT/build-tools -name apksigner | sort -r | head -n 1)
+          
+          echo "Found zipalign at: $ZIPALIGN"
+          echo "Found apksigner at: $APKSIGNER"
+          
+          # Generate an on-the-fly keystore for zero-config signing
+          keytool -genkey -v -keystore release.keystore -alias adhoc-alias -keyalg RSA -keysize 2048 -validity 10000 -storepass testpassword123 -keypass testpassword123 -dname "CN=com.termux.microeditorpro, OU=Mobile, O=TermuxMicroEditor, L=SanFrancisco, S=CA, C=US"
+          
+          # Zip-align the release binary (mandatory step for Android OS)
+          $ZIPALIGN -v 4 android/app/build/outputs/apk/release/app-release-unsigned.apk build-assets/termux-micro-editor-pro-release.apk
+          
+          # Cryptographically sign the aligned APK with apksigner (v2/v3 signatures)
+          $APKSIGNER sign --ks release.keystore --ks-pass pass:testpassword123 --key-pass pass:testpassword123 --ks-key-alias adhoc-alias build-assets/termux-micro-editor-pro-release.apk
+          
+          # Copy the pre-signed debug APK generated directly by Android Gradle plugin
+          cp android/app/build/outputs/apk/debug/app-debug.apk build-assets/termux-micro-editor-pro-debug.apk
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            build-assets/termux-micro-editor-pro-release.apk
+            build-assets/termux-micro-editor-pro-debug.apk
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

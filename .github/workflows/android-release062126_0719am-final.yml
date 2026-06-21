@@ -1,0 +1,78 @@
+name: Build & Release Android APK
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger build only when pushing custom tags e.g. v1.0.0
+  workflow_dispatch: # Enable manual triggers in GitHub Web UI
+
+jobs:
+  build-apk:
+    name: Build & Package Android APK
+    runs-on: ubuntu-latest
+    permissions:
+          contents: write   # Allows the runner to create tags and publish releases
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Fix 1 & 2: Upgraded Node to 22 (LTS) to provide a patched npm version,
+      # and enabled automatic GitHub caching for reliable, fast installs.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      # Fix 3: Replaced the volatile 'rm -rf' hack with 'npm ci'.
+      # It enforces a clean, deterministic install from your lockfile.
+      - name: Install Base Web Dependencies
+        run: npm ci
+
+      - name: Compile React Web Assets
+        run: npm run build
+
+      - name: Setup Java Development Kit (JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Synchronize Web Bundle to Android Platform
+        run: npx cap sync android
+
+      - name: Fix Corrupt PNG Assets (AAPT2 Fix)
+        run: |
+          sudo apt-get update && sudo apt-get install -y optipng pngcrush
+          echo "Repairing mipmap PNG files..."
+          # Find all launcher images and force re-encoding to strip corrupt headers
+          find android/app/src/main/res/ -name "*.png" -exec optipng -quiet -force -o2 {} \;
+          find android/app/src/main/res/ -name "*.png" -exec pngcrush -ow -q -rem alla -reduce {} \;
+
+# Extract version and download clean jar
+      
+      - name: Grant Gradle Execution Rights
+        run: chmod +x android/gradlew
+
+      - name: Build Android Release APK (unsigned)
+        run: |
+          cd android
+          ./gradlew assembleRelease
+
+      - name: Locate & Rename APK
+        run: |
+          mkdir -p build-assets
+          cp android/app/build/outputs/apk/release/app-release-unsigned.apk build-assets/termux-micro-editor-pro.apk
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build-assets/termux-micro-editor-pro.apk
+          name: Release ${{ github.ref_name }}
+          # Fix: Explicitly provide a fallback tag if triggered manually
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-run-{0}', github.run_number) }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
